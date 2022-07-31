@@ -133,10 +133,18 @@ if [[ "$(docker images -q ${USER}_image)" == "" ]] || [[ $FORCE_BUILD == "yes" ]
     echo '
         FROM '"${PULL_FROM}"'
         ENV TZ=America/Chicago
-        RUN mkdir -p /expose && apt-get update \
-            && apt-get install tzdata && python -m pip install jupyter
-        WORKDIR /expose
-        CMD jupyter notebook --no-browser --allow-root' \
+        ENV PATH="/home/'"${USER}"'/.local/bin:$PATH"
+        ARG UNAME='"${USER}"'
+        ARG UID='"$(id -u)"'
+        ARG GID='"$(id -g)"'
+        RUN groupadd -g $GID -o $UNAME \
+            && useradd -m -u $UID -g $GID -o -s /bin/bash $UNAME \
+            && apt-get update && apt-get install tzdata 
+        USER $UNAME
+        RUN mkdir -p /home/$UNAME/expose \
+            && python -m pip install --user jupyter
+        WORKDIR /home/$UNAME/expose
+        CMD jupyter notebook --no-browser' \
     | sed "s/[\s \t]*//" | sed "/^[\s \t]*$/d" \
     | docker build -t ${USER}_image -
     if [[ $? -ne 0 ]]; then
@@ -152,7 +160,7 @@ if [[ "$(docker container ls | grep -E '[ \s \t]+'"${USER}"'_container$')" == ""
     if ! [[ "$GPUS_TO_USE" -eq "0" ]]; then
         GPU_STRING="--gpus=${GPUS_TO_USE}"
     fi
-    docker run -d -v "/home/${USER}/expose:/expose" --rm --network=host \
+    docker run -u "$(id -u)":"$(id -g)" -d -v "/home/${USER}/expose:/home/${USER}/expose" --rm --network=host \
         --name="${USER}_container" --cpus="${CPUS_TO_USE}" $GPU_STRING \
         "${USER}_image"
     if [[ $? -ne 0 ]]; then
@@ -169,13 +177,13 @@ docker container logs "${USER}_container" 2>&1 | grep 'http' | grep 'token'
 
 ########## Run custom command ####################
 if ! [[ "$CUSTOM_COMMAND" == "" ]]; then
-    docker exec -d "${USER}_container" bash -c "$CUSTOM_COMMAND"
+    docker exec -u "$(id -u)":"$(id -g)" -d "${USER}_container" bash -c "$CUSTOM_COMMAND"
 fi
 ##################################################
 
 ########## Start bash shell ######################
 if [[ "$START_BASH" == "yes" ]]; then
-    docker exec -it "${USER}_container" "/bin/bash"
+    docker exec -u "$(id -u)":"$(id -g)" -it "${USER}_container" "/bin/bash"
 fi
 ##################################################
 
