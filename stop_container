@@ -1,0 +1,11 @@
+#!/bin/bash
+
+if [[ "$(docker container ls | grep -E '[ \s \t]+'"${USER}"'_container$')" == "" ]]; then
+    echo "Container ${USER}_container is not running!!"
+    exit
+fi
+
+docker container commit ${USER}_container ${USER}_image
+docker container stop ${USER}_container
+docker container prune -f
+
