@@ -8,6 +8,8 @@ FORCE_BUILD='no'
 CALLED_AS="${CALLED_AS:-$0}"
 FORCE_STOP='no'
 NO_START="no"
+START_BASH="no"
+CUSTOM_COMMAND=""
 ##################################################
 
 ########## Help ##################################
@@ -25,10 +27,17 @@ show_help() {
     echo "  ${USER}_image and ${USER}_container"
     echo ''
     echo 'Options:'
+    echo '  -b or --bash'
+    echo '          Start a bash prompt in container. Will start a new'
+    echo '          container if it is not running.'
     echo '  -c NCPUS or --cpus=NCPUS'
     echo "          Container's throughput throttled to"
     echo '          NCPUS fraction of total number of CPUs.'
     echo '          Default 4.0.'
+    echo '  --command=COMMAND'
+    echo '          Run a custom command. Will execute in the /expose'
+    echo '          directory of container, which is linked to'
+    echo "          /home/${USER}/expose on host."
     echo '  -f or --force'
     echo '          Builds from fresh new image even if'
     echo '          one exists on disk, not set by default.'
@@ -51,8 +60,8 @@ show_help() {
 ##################################################
 
 ########## Parse comamnd line arguments ##########
-SOPTIONS="c:fg:hi:rs"
-LOPTIONS="cpus:,force,gpus:,help,image:,restart,stop"
+SOPTIONS="bc:fg:hi:rs"
+LOPTIONS="bash,cpus:,command:,force,gpus:,help,image:,restart,stop"
 OPTS=$(getopt -a -q -n "$CALLED_AS" -o "$SOPTIONS" -l "$LOPTIONS" -- "$@")
 if [[ $? -ne 0 ]]; then
     echo "Incorrect usage of $CALLED_AS. Please see help below."
@@ -62,9 +71,15 @@ fi
 eval set -- "$OPTS"
 while [[ $# -ne 0 ]]; do
     case "$1" in
+        -b|--bash)
+            START_BASH="yes"
+            shift;;
         -c|--cpus)
             CPUS_TO_USE="$2"
             FORCE_STOP="yes"
+            shift 2;;
+        --command)
+            CUSTOM_COMMAND="$2"
             shift 2;;
         -f|--force)
             FORCE_BUILD="yes"
@@ -117,7 +132,9 @@ if [[ "$(docker images -q ${USER}_image)" == "" ]] || [[ $FORCE_BUILD == "yes" ]
     docker image rm -f ${USER}_image 2>/dev/null
     echo '
         FROM '"${PULL_FROM}"'
-        RUN mkdir -p /expose && python -m pip install jupyter
+        ENV TZ=America/Chicago
+        RUN mkdir -p /expose && apt-get update \
+            && apt-get install tzdata && python -m pip install jupyter
         WORKDIR /expose
         CMD jupyter notebook --no-browser --allow-root' \
     | sed "s/[\s \t]*//" | sed "/^[\s \t]*$/d" \
@@ -148,5 +165,17 @@ fi
 
 ########## Show IP of jupyter notebook ###########
 docker container logs "${USER}_container" 2>&1 | grep 'http' | grep 'token'
+##################################################
+
+########## Run custom command ####################
+if ! [[ "$CUSTOM_COMMAND" == "" ]]; then
+    docker exec -d "${USER}_container" bash -c "$CUSTOM_COMMAND"
+fi
+##################################################
+
+########## Start bash shell ######################
+if [[ "$START_BASH" == "yes" ]]; then
+    docker exec -it "${USER}_container" "/bin/bash"
+fi
 ##################################################
 
