@@ -1,0 +1,152 @@
+#!/bin/bash
+
+########### Default values #######################
+CPUS_TO_USE='4.0'
+GPUS_TO_USE=1
+PULL_FROM='pytorch/pytorch'
+FORCE_BUILD='no'
+CALLED_AS="${CALLED_AS:-$0}"
+FORCE_STOP='no'
+NO_START="no"
+##################################################
+
+########## Help ##################################
+show_help() {
+    echo ''
+    echo "Usage: $CALLED_AS [OPTIONS]"
+    echo ''
+    echo 'Get into a container. By default, if container is running,'
+    echo 'you are shown its jupyter IP. If no container is running, a'
+    echo 'new one is started using a previously saved (committed) image.'
+    echo 'If an image does not exist, a new one is built by pulling'
+    echo 'a docker image from dockerhub.'
+    echo ''
+    echo 'The image and container for you are:'
+    echo "  ${USER}_image and ${USER}_container"
+    echo ''
+    echo 'Options:'
+    echo '  -c NCPUS or --cpus=NCPUS'
+    echo "          Container's throughput throttled to"
+    echo '          NCPUS fraction of total number of CPUs.'
+    echo '          Default 4.0.'
+    echo '  -f or --force'
+    echo '          Builds from fresh new image even if'
+    echo '          one exists on disk, not set by default.'
+    echo '          Automatically enables the -s option.'
+    echo '  -g NGPUS or --gpus=NGPUS'
+    echo '          Allocates NGPUS number of GPUs to'
+    echo '          container. Default 1.'
+    echo '  -h or --help'
+    echo '          Show this help.'
+    echo '  -i IMAGE or --image=IMAGE'
+    echo '          Pulls IMAGE from dockerhub as a base and'
+    echo '          builds new image. Automatically enables the'
+    echo '          -f and -s options. Default pytorch/pytorch.'
+    echo '  -r or --restart'
+    echo '          Stop previously running container (if)'
+    echo '          and start new one, not set by default'
+    echo '  -s or --stop'
+    echo "          Stop if ${USER}_container is running."
+}
+##################################################
+
+########## Parse comamnd line arguments ##########
+SOPTIONS="c:fg:hi:rs"
+LOPTIONS="cpus:,force,gpus:,help,image:,restart,stop"
+OPTS=$(getopt -a -q -n "$CALLED_AS" -o "$SOPTIONS" -l "$LOPTIONS" -- "$@")
+if [[ $? -ne 0 ]]; then
+    echo "Incorrect usage of $CALLED_AS. Please see help below."
+    show_help
+    exit 1
+fi
+eval set -- "$OPTS"
+while [[ $# -ne 0 ]]; do
+    case "$1" in
+        -c|--cpus)
+            CPUS_TO_USE="$2"
+            FORCE_STOP="yes"
+            shift 2;;
+        -f|--force)
+            FORCE_BUILD="yes"
+            FORCE_STOP="yes"
+            shift;;
+        -g|--gpus)
+            GPUS_TO_USE="$2"
+            FORCE_STOP="yes"
+            shift 2;;
+        -h|--help)
+            show_help
+            exit 1;;
+        -i|--image)
+            PULL_FROM="$2"
+            FORCE_BUILD="yes"
+            FORCE_STOP="yes"
+            shift 2;;
+        -r|--restart)
+            FORCE_STOP="yes"
+            shift;;
+        -s|--stop)
+            FORCE_STOP="yes"
+            NO_START="yes"
+            shift;;
+        --)
+            shift;;
+        *)
+            echo "Incorrect usage of $CALLED_AS. Please see help below."
+            show_help
+            exit 1;;
+    esac
+done
+##################################################
+
+########## Stop containers if -s is set ##########
+if [[ "$FORCE_STOP" == "yes" ]]; then
+    if ! [[ "$(docker container ls | grep -E '[ \s \t]+'"${USER}"'_container$')" == "" ]]; then
+        docker container commit ${USER}_container ${USER}_image
+        docker container stop ${USER}_container
+        docker container prune -f
+    fi
+fi
+if [[ "$NO_START" == "yes" ]]; then
+    exit 0
+fi
+##################################################
+
+########## Pull from dockerhub and build #########
+if [[ "$(docker images -q ${USER}_image)" == "" ]] || [[ $FORCE_BUILD == "yes" ]]; then
+    docker image rm -f ${USER}_image 2>/dev/null
+    echo '
+        FROM '"${PULL_FROM}"'
+        RUN mkdir -p /expose && python -m pip install jupyter
+        WORKDIR /expose
+        CMD jupyter notebook --no-browser --allow-root' \
+    | sed "s/[\s \t]*//" | sed "/^[\s \t]*$/d" \
+    | docker build -t ${USER}_image -
+    if [[ $? -ne 0 ]]; then
+        echo 'Error building image!!'
+        exit 2
+    fi
+fi
+##################################################
+
+########## Start container if it's not ###########
+if [[ "$(docker container ls | grep -E '[ \s \t]+'"${USER}"'_container$')" == "" ]]; then
+    unset GPU_STRING
+    if ! [[ "$GPUS_TO_USE" -eq "0" ]]; then
+        GPU_STRING="--gpus=${GPUS_TO_USE}"
+    fi
+    docker run -d -v "/home/${USER}/expose:/expose" --rm --network=host \
+        --name="${USER}_container" --cpus="${CPUS_TO_USE}" $GPU_STRING \
+        "${USER}_image"
+    if [[ $? -ne 0 ]]; then
+        echo 'Error starting container!!'
+        exit 2
+    fi
+    sleep 3
+fi
+##################################################
+
+########## Show IP of jupyter notebook ###########
+docker container logs "${USER}_container" 2>&1 | grep 'http' | grep 'token'
+##################################################
+
