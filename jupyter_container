@@ -199,7 +199,11 @@ show_list
 
 ########## Run custom command ####################
 if ! [[ "$CUSTOM_COMMAND" == "" ]]; then
-    docker exec -u "$(id -u)":"$(id -g)" -d "${USER}_container" bash -c "$CUSTOM_COMMAND"
+    CD_TO=""
+    if [[ "$(pwd)" =~ ^/home/${USER}/expose/(.*)$ ]]; then
+        CD_TO="cd ${BASH_REMATCH[1]} && "
+    fi
+    docker exec -u "$(id -u)":"$(id -g)" -d "${USER}_container" bash -c "${CD_TO}${CUSTOM_COMMAND}"
 fi
 ##################################################
 
