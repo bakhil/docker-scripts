@@ -10,6 +10,7 @@ FORCE_STOP='no'
 NO_START="no"
 START_BASH="no"
 CUSTOM_COMMAND=""
+JUST_SHOW="no"
 ##################################################
 
 ########## Help ##################################
@@ -51,17 +52,23 @@ show_help() {
     echo '          Pulls IMAGE from dockerhub as a base and'
     echo '          builds new image. Automatically enables the'
     echo '          -f and -s options. Default pytorch/pytorch.'
+    echo '  -l or --list'
+    echo '          Show if your container is running and the jupyter IP.'
+    echo '          Does nothing if no container is running.'
     echo '  -r or --restart'
     echo '          Stop previously running container (if)'
-    echo '          and start new one, not set by default'
+    echo '          and start new one.'
     echo '  -s or --stop'
     echo "          Stop if ${USER}_container is running."
+    echo ''
+    echo 'Options --command, -l/--list, -s/--stop should not be used'
+    echo 'with other options. Behavior is undefined if done.'
 }
 ##################################################
 
 ########## Parse comamnd line arguments ##########
-SOPTIONS="bc:fg:hi:rs"
-LOPTIONS="bash,cpus:,command:,force,gpus:,help,image:,restart,stop"
+SOPTIONS="bc:fg:hi:lrs"
+LOPTIONS="bash,cpus:,command:,force,gpus:,help,image:,list,restart,stop"
 OPTS=$(getopt -a -q -n "$CALLED_AS" -o "$SOPTIONS" -l "$LOPTIONS" -- "$@")
 if [[ $? -ne 0 ]]; then
     echo "Incorrect usage of $CALLED_AS. Please see help below."
@@ -97,6 +104,9 @@ while [[ $# -ne 0 ]]; do
             FORCE_BUILD="yes"
             FORCE_STOP="yes"
             shift 2;;
+        -l|--list)
+            JUST_SHOW="yes"
+            shift;;
         -r|--restart)
             FORCE_STOP="yes"
             shift;;
@@ -112,6 +122,16 @@ while [[ $# -ne 0 ]]; do
             exit 1;;
     esac
 done
+##################################################
+
+########## Just show running container ###########
+show_list() {
+    docker container logs "${USER}_container" 2>&1 | grep 'http' | grep 'token'
+}
+if [[ "$JUST_SHOW" == "yes" ]]; then
+    show_list
+    exit 0
+fi
 ##################################################
 
 ########## Stop containers if -s is set ##########
@@ -174,7 +194,7 @@ fi
 ##################################################
 
 ########## Show IP of jupyter notebook ###########
-docker container logs "${USER}_container" 2>&1 | grep 'http' | grep 'token'
+show_list
 ##################################################
 
 ########## Run custom command ####################
