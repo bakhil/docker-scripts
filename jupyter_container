@@ -139,8 +139,8 @@ if [[ "$(docker images -q ${USER}_image)" == "" ]] || [[ $FORCE_BUILD == "yes" ]
         ARG GID='"$(id -g)"'
         RUN groupadd -g $GID -o $UNAME \
             && useradd -m -u $UID -g $GID -o -s /bin/bash $UNAME \
-            && apt-get update && apt-get install tzdata \
-            && apt-get install git
+            && apt-get update && apt-get -y install tzdata \
+            && apt-get -y install git
         USER $UNAME
         RUN mkdir -p /home/$UNAME/expose \
             && python -m pip install --user jupyter
