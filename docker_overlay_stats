@@ -1,0 +1,95 @@
+#!/bin/bash
+
+CALLED_AS="${CALLED_AS:-$0}"
+
+######## Help ####################################
+show_help() {
+    echo ''
+    echo "Usage: $CALLED_AS [OPTIONS]"
+    echo ''
+    echo 'Simple scripts for docker administration.'
+    echo 'Only one option can be used at a time.'
+    echo ''
+    echo 'Options:'
+    echo '  -h or --help'
+    echo '          Show this help message.'
+    echo '  -o FOLDER or --overlay=FOLDER'
+    echo '          Show containers using FOLDER in overlay.'
+    echo '  --overlay_size N'
+    echo '          Show top N folders in overlay by size,'
+    echo '          and the containers using the folders.'
+    echo '          Needs root permission.'
+}
+##################################################
+
+######## Map container to overlay ################
+get_overlay() {
+    for container in $(docker container ls -a --format '{{.Names}}'); do
+        if docker inspect "$container" --format '{{.GraphDriver.Data}}' | \
+            grep -q "$1"; then
+            echo "$container"
+        fi
+    done
+}
+##################################################
+
+######## Show top N folders in overlay ###########
+show_overlay_list() {
+    if [ -d "/var/lib/docker/overlay2" ]; then
+        DOCKER_OVERLAY_MAIN="/var/lib/docker/overlay2"
+    elif [ -d "/var/lib/docker/overlay" ]; then
+        DOCKER_OVERLAY_MAIN="/var/lib/docker/overlay"
+    else
+        echo "Cannot find overlay directory."
+        exit 1
+    fi
+    du -sh "$DOCKER_OVERLAY_MAIN"/*/ | sort -h -r | \
+        head -n "$1" | \
+        awk '{
+            match($0, /[/]([^/]*)[/]*$/, arr)
+            print $1, arr[1]
+        }'
+}
+show_overlay_size() {
+    show_overlay_list "$1" | \
+        while read line; do
+            FOLDER=$(echo "$line" | cut -d' ' -f2)
+            USERS=$(get_overlay "$FOLDER")
+            echo $line, $USERS
+        done
+}
+##################################################
+
+########## Parse comamnd line arguments ##########
+SOPTIONS="ho:"
+LOPTIONS="help,overlay:,overlay_size:"
+OPTS=$(getopt -a -q -n "$CALLED_AS" -o "$SOPTIONS" -l "$LOPTIONS" -- "$@")
+if [[ $? -ne 0 ]]; then
+    echo "Incorrect usage of $CALLED_AS. Please see help below."
+    show_help
+    exit 1
+fi
+eval set -- "$OPTS"
+while [[ $# -ne 0 ]]; do
+    case "$1" in
+        -o|--overlay)
+            get_overlay "$2"
+            exit 0;;
+        -h|--help)
+            show_help
+            exit 0;;
+        --overlay_size)
+            show_overlay_size "$2"
+            exit 0;;
+        --)
+            show_help
+            shift;;
+        *)
+            echo "Incorrect usage of $CALLED_AS. Please see help below."
+            show_help
+            exit 1;;
+    esac
+done
+##################################################
+
+
