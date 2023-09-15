@@ -11,6 +11,7 @@ NO_START="no"
 START_BASH="no"
 CUSTOM_COMMAND=""
 JUST_SHOW="no"
+MOUNT_FOLDER=""
 ##################################################
 
 ########## Help ##################################
@@ -55,6 +56,10 @@ show_help() {
     echo '  -l or --list'
     echo '          Show if your container is running and the jupyter IP.'
     echo '          Does nothing if no container is running.'
+    echo '  -m FOLDER or --mount=FOLDER'
+    echo '          Mount FOLDER, available within container at /mnt/FOLDER.'
+    echo "          If you don't have write permissions on FOLDER, it will"
+    echo '          be mounted as read-only in the container.'
     echo '  -r or --restart'
     echo '          Stop previously running container (if)'
     echo '          and start new one.'
@@ -67,8 +72,8 @@ show_help() {
 ##################################################
 
 ########## Parse comamnd line arguments ##########
-SOPTIONS="bc:fg:hi:lrs"
-LOPTIONS="bash,cpus:,command:,force,gpus:,help,image:,list,restart,stop"
+SOPTIONS="bc:fg:hi:lm:rs"
+LOPTIONS="bash,cpus:,command:,force,gpus:,help,image:,list,mount:,restart,stop"
 OPTS=$(getopt -a -q -n "$CALLED_AS" -o "$SOPTIONS" -l "$LOPTIONS" -- "$@")
 if [[ $? -ne 0 ]]; then
     echo "Incorrect usage of $CALLED_AS. Please see help below."
@@ -107,6 +112,10 @@ while [[ $# -ne 0 ]]; do
         -l|--list)
             JUST_SHOW="yes"
             shift;;
+        -m|--mount)
+            MOUNT_FOLDER="$2"
+            FORCE_STOP="yes"
+            shift 2;;
         -r|--restart)
             FORCE_STOP="yes"
             shift;;
@@ -181,7 +190,15 @@ if [[ "$(docker container ls | grep -E '[ \s \t]+'"${USER}"'_container$')" == ""
     if ! [[ "$GPUS_TO_USE" -eq "0" ]]; then
         GPU_STRING="--gpus=${GPUS_TO_USE}"
     fi
-    docker run -u "$(id -u)":"$(id -g)" -d -v "/home/${USER}/expose:/home/${USER}/expose" \
+    unset EXTRA_MOUNTS
+    if ! [[ "$MOUNT_FOLDER" == "" ]]; then
+        FULL_MOUNT_FOLDER="$(readlink -f ${MOUNT_FOLDER})"
+        EXTRA_MOUNTS="-v ${FULL_MOUNT_FOLDER}:/mnt${FULL_MOUNT_FOLDER}"
+        if ! [[ -w "${FULL_MOUNT_FOLDER}" ]]; then
+            EXTRA_MOUNTS="${EXTRA_MOUNTS}:ro"
+        fi
+    fi
+    docker run -u "$(id -u)":"$(id -g)" -d -v "/home/${USER}/expose:/home/${USER}/expose" $EXTRA_MOUNTS \
         --rm --network=host --hostname=${USER}_container \
         --name="${USER}_container" --cpus="${CPUS_TO_USE}" $GPU_STRING \
         "${USER}_image"
